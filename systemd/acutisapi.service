@@ -1,0 +1,12 @@
+[Unit]
+Description=Flask service for Private API
+After=multi-user.target
+
+[Service]
+Type=Simple
+Restart=Always
+WorkingDirectory=/home/dringwa/acutis
+ExecStart=/home/dringwa/acutis/start.sh
+
+[Install]
+WantedBy=multi-user.target
