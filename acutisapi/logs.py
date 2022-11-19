@@ -3,12 +3,11 @@ import logging
 import http.client as http_client
 import contextlib
 
-
 LOG_FILE = "api.log"
 LOG_STREAM = sys.stdout
 
 
-def init_log():
+def init_log(file_logging=False):
 
     logging.basicConfig(
         format="%(asctime)s > %(name)s/%(levelname)s : %(message)s",
@@ -16,7 +15,7 @@ def init_log():
         level=logging.DEBUG,
     )
 
-    if LOG_FILE:
+    if LOG_FILE and file_logging:
         file_h = logging.FileHandler(LOG_FILE).setLevel(logging.INFO)
         logging.getLogger().addHandler(file_h)
 

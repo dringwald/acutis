@@ -3,15 +3,12 @@ from datetime import datetime
 
 from flask import Flask, request
 
-from acutisapi import api_log, ynab
+from acutisapi import logs, ynab
 from acutisapi.notify import push
 
 app = Flask(__name__)
 
 
-def main():
-    api_log.init_log()
-    app.run()
 
 
 @app.route("/")
@@ -117,4 +114,4 @@ def write_state(state):
 
 
 if __name__ == "__main__":
-    main()
+    app.run()
