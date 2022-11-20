@@ -2,26 +2,39 @@ import sys
 import logging
 import http.client as http_client
 import contextlib
+from acutisapi.logpushoverhandler import LogPushoverHandler
 
 LOG_FILE = "api.log"
 LOG_STREAM = sys.stdout
+PUSHOVER_KEYS = {"app_token":"a1c7f5g5pw2d7nxt1qb9bwcyesmped",
+    "user_token":"u27psikhwywa2kba8a594zotexyvqs"}
 
 
-def init_log(file_logging=False):
+logging.basicConfig(
+    format="%(asctime)s > %(name)s/%(levelname)s : %(message)s",
+    datefmt="%Y.%m.%d %k:%M",
+    level=logging.DEBUG,
+)
 
-    logging.basicConfig(
-        format="%(asctime)s > %(name)s/%(levelname)s : %(message)s",
-        datefmt="%Y.%m.%d %k:%M",
-        level=logging.DEBUG,
+def enable_stream_log():
+    stream_h = logging.StreamHandler(LOG_STREAM).setLevel(logging.DEBUG)
+    logging.getLogger().addHandler(stream_h)
+
+def enable_file_log():
+    file_h = logging.FileHandler(LOG_FILE).setLevel(logging.INFO)
+    logging.getLogger().addHandler(file_h)
+
+def enable_push_log():
+    pushlog : logging.Logger = logging.getLogger("push").setLevel(logging.DEBUG)
+    push_handler = LogPushoverHandler(
+        token=PUSHOVER_KEYS["app_token"],
+        user=PUSHOVER_KEYS["user_token"]
     )
-
-    if LOG_FILE and file_logging:
-        file_h = logging.FileHandler(LOG_FILE).setLevel(logging.INFO)
-        logging.getLogger().addHandler(file_h)
-
-    if LOG_STREAM:
-        stream_h = logging.StreamHandler(LOG_STREAM).setLevel(logging.DEBUG)
-        logging.getLogger().addHandler(stream_h)
+    push_handler.setFormatter(logging.Formatter('%(message)s'))
+    pushlog.addHandler(push_handler)
+    
+def get_pushlog():
+    return logging.getLogger("push") 
 
 
 def debug_requests_on():

@@ -1,15 +1,15 @@
 import json
 from datetime import datetime
-
 from flask import Flask, request
-
-from acutisapi import logs, ynab
 from acutisapi.notify import push
+from acutisapi import logs
 
 app = Flask(__name__)
+from acutisapi import ynab
 
-
-
+logs.enable_stream_log()
+logs.enable_file_log()
+logs.enable_push_log()
 
 @app.route("/")
 def return_one():
@@ -114,4 +114,5 @@ def write_state(state):
 
 
 if __name__ == "__main__":
+    logs.init_log()
     app.run()

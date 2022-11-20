@@ -5,7 +5,6 @@ from datetime import timedelta
 from requests.exceptions import HTTPError
 import requests
 from acutisapi.app import app
-from acutisapi.notify import push
 
 secrets = {
     "budget_id": "8f3d7058-c7b4-42ec-b42a-c9466fbe652f",
@@ -17,7 +16,10 @@ secrets = {
     },
 }
 
+# updated with last result
+RESULT = None
 log = logging.getLogger("ynab")
+plog = logging.getLogger("push")
 
 _api_key = secrets["api_key"]
 _budget_id = secrets["budget_id"]
@@ -35,16 +37,8 @@ def to_allowance(amount):
     amount = int(amount)
     r = move("daily_hold", "daily_free", amount)
     if r[0]:
-        push(
-            "Budget updated successfully",
-            f"${amount} was added to your daily use budget.",
-        )
         return "1"
     else:
-        push(
-            "Budget update failed!",
-            f"There was a problem moving ${amount} into your daily use budget. Function returned {r[1]}",
-        )
         return "0"
 
 
@@ -81,9 +75,9 @@ def move_equal_allowance():
     today = datetime.date.today()
     delta = (today - anchor).days
     shares = 14 - (delta % 14)
-    pool = get_amount("daily_hold") / 1000
+    pool = get_amount("daily_hold")
     to_move = round(pool / shares, 2)
-    print(f"moving {shares} shares of ${pool}: sending {to_move} to daily allowance.")
+    log.info(f"moving {shares} shares of ${pool}: sending {to_move} to daily allowance.")
     move("daily_hold", "daily_free", to_move)
     return to_move
 
@@ -97,77 +91,74 @@ def get_amount(category, month="current") -> int:
     )
     response.raise_for_status()
     j = response.json()
-    return int(j["data"]["category"]["budgeted"])
+    return int(j["data"]["category"]["budgeted"]) / 1000 
 
 
-def add_to_category(category, amount_to_move, month="current"):
+def add_to_category(category, req_amount_to_move, month="current") -> requests.Response:
     current_amount = get_amount(category, month)
-    amount_to_move = int(amount_to_move) * 1000
-    new_amount = int(current_amount + amount_to_move)
+    amount_to_move = int(req_amount_to_move)
+    new_amount = current_amount + amount_to_move
 
     if new_amount < 0:
-        moved_amount = current_amount / 1000
         new_amount = 0
-    else:
-        moved_amount = amount_to_move / 1000
 
     category_id = categories[category]
-    data = json.dumps({"category": {"budgeted": new_amount}})
+    data = json.dumps({"category": {"budgeted": new_amount * 1000}})
     url = f"{URL}/budgets/{_budget_id}/months/{month}/categories/{category_id}"
     r: requests.Response = requests.patch(
         url,
         data=data,
         headers=_dheaders,
     )
-    return {"amount_moved": moved_amount, "response": r}
+
+    amount_moved = new_amount - current_amount
+    
+    _add_metadata(r,{"requested_amount":req_amount_to_move,"amount_moved":amount_moved,"account":category,"month":month})
+    return r
 
 
-def subtract_from_category(category, amount, month="current"):
+def subtract_from_category(category, amount, month="current") -> requests.Response:
     amount = amount * -1
     return add_to_category(category, amount, month)
 
+def _add_metadata(response:requests.Response,data:dict) -> requests.Response:
+    d:dict = response.json()
+    d["metadata"] = data 
 
-def move(origin, target, amount, month="current", protected=True):
+def get_metadata(response:requests.Response) -> dict:
+    return response.json()
 
+def move(origin, target, amount, month="current", protected=True) -> requests.Response:
     # remove from origin
     try:
-        r = subtract_from_category(origin, amount, month)
-        r["response"].raise_for_status()
+        r : requests.Response = subtract_from_category(origin, amount, month)
+        r.raise_for_status()
         # In case there wasn't enough funds in origin update the amount
         # But only if this is a protected transfer.
         # If unprotected, you might end up assigning money to the target
         # that doesn't exit
         if protected:
-            amount = r["amount_moved"] * -1
-            print(f"{amount} FOO")
+            amount = get_metadata(r)["amount_moved"] * -1
     except HTTPError as e:
         # if an error happened, stop everything
-        print(e.text)
-        return (False, f"Error in removing allowance from {target}.", r)
+        plog.error(f"Error occoured pulling {amount} from {origin}: {e.response.text}")
+        return False
 
     # If the first move was successful, go to the second
     try:
         r = add_to_category(target, amount, month)
-        r["response"].raise_for_status()
+        r.raise_for_status()
     except HTTPError as e:
-        print(e.text)
         # If you failed to put the money in target, try to return it to origin
         try:
             r = add_to_category(origin, amount, month)
-            r["response"].raise_for_status()
+            r.raise_for_status()
         except HTTPError as e:
-            print(e.text)
-            return (
-                False,
-                f"Couldn't add money to {target}. Couldn't return money to {origin}",
-                r,
-            )
+            plog.error(f"Error: I couldn't put {amount} in {target} and I can't return it to {origin}")
+            return False
         else:
-            return (
-                False,
-                f"Couldn't add money to {target}. Money returned to {origin}",
-                r,
-            )
-
+            plog.error(f"Error occoured putting {amount} into {target}: {e.response.text}")
+            return False
     # If both moves were successful
-    return (True, "Task completed successfully", r)
+    log.info(f"${amount} was moved from {origin} to {target}.")
+    return True
